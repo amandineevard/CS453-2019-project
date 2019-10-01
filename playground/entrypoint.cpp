@@ -37,26 +37,29 @@
 
 /** Lock default constructor.
 **/
-Lock::Lock() {
-    // ...
+Lock::Lock(){
+    m_lock=0;
 }
 
 /** Lock destructor.
 **/
 Lock::~Lock() {
-    // ...
+
 }
 
 /** [thread-safe] Acquire the lock, block if it is already acquired.
 **/
 void Lock::lock() {
-    // ...
+   unsigned int prev = 0;
+    while ( ! m_lock.compare_exchange_strong(prev,1,std::memory_order_acquire,std::memory_order_relaxed) ){
+        prev = 0;
+    }
 }
 
 /** [thread-safe] Release the lock, assuming it is indeed held by the caller.
 **/
 void Lock::unlock() {
-    // ...
+    m_lock.store(0,std::memory_order_release);
 }
 
 // -------------------------------------------------------------------------- //

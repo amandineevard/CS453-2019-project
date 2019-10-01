@@ -41,6 +41,8 @@ public:
 public:
     void lock();
     void unlock();
+private:
+    std::atomic<unsigned int>m_lock;
 };
 
 // -------------------------------------------------------------------------- //
