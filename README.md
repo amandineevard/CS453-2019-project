@@ -96,7 +96,7 @@ You may read and inspire from existing STM libraries, but it must be **your own 
 
 1. Zip your modified (copy of the) `template` directory.
 
-2. Send your code for evaluation with the `submit.py` script. You can specify for which step your submission is.
+2. Send your code for evaluation with the `submit.py` script.
 ```
 usage: submit.py [-h] --uuid UUID [--host HOST] [--port PORT] [--force-update] [--download] zippath
 
