@@ -21,7 +21,10 @@
 #endif
 
 // External headers
-
+#include <stdatomic.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 // Internal headers
 #include <tm.h>
 
@@ -65,6 +68,32 @@
 
 // -------------------------------------------------------------------------- //
 
+//only one region for our program, its the main contenant.
+struct region {
+    void* start;                //the global region memory
+    atomic_size_t size;         //size of the segment (assume only one segment here)
+    atomic_size_t align;       // Claimed alignment of the shared memory region (in bytes)
+    atomic_size_t align_alloc; // Actual alignment of the memory allocations (in bytes)
+    atomic_uint global_version_clock; //The global clock
+    atomic_uint* versioned_locks;
+};
+
+struct shared_memory_state{
+    bool read; //if the value has been read last ()
+    void*  new_value;  //the value to write by the transaction at this location
+};
+
+struct transaction{
+    bool is_read_only;
+    unsigned int rv;  //read version number
+    unsigned int wv;  //write version number
+    struct shared_memory_state* memory_state; //a pointer to an array of object shared_memory_state storing the new value to write
+};
+
+struct segment{
+    atomic_size_t size;
+};
+
 /** Create (i.e. allocate + init) a new shared memory region, with one first non-free-able allocated segment of the requested size and alignment.
  * @param size  Size of the first shared segment of memory to allocate (in bytes), must be a positive multiple of the alignment
  * @param align Alignment (in bytes, must be a power of 2) that the shared memory region must support
@@ -72,13 +101,59 @@
 **/
 shared_t tm_create(size_t size as(unused), size_t align as(unused)) {
     // TODO: tm_create(size_t, size_t)
-    return invalid_shared;
+    //alloc the space for the struct region:
+    struct region* region = (struct region*) malloc(sizeof(struct region));
+    //copy from references
+    if (unlikely(!region)) {
+        return invalid_shared;
+    }
+    // Check that the given alignment is correct
+    // Also satisfy alignment requirement of 'struct link'
+    //size of void is the size of a pointer depending on the 32-bit or 64-bit system.
+    size_t align_alloc = align < sizeof(void*) ? sizeof(void*) : align;
+    //allocate the segment:
+    //The posix_memalign() function shall allocate size bytes aligned on a boundary specified by alignment, and shall
+    // return a pointer to the allocated memory in memptr. The value of alignment shall be a power of two multiple of sizeof(void *).
+    //Upon successful completion, posix_memalign() shall return zero
+    if (unlikely(posix_memalign(&(region->start), align_alloc, size) != 0)) {
+        free(region->start);
+        free(region);
+        return invalid_shared;
+    }
+    //we fill the segment with zero:
+    memset(region->start, 0, size);
+    //then we can init the region:
+    atomic_init(&(region->size), size);
+    atomic_init(&(region->align), align);
+    atomic_init(&(region->align_alloc), align_alloc);
+    //init global_clock to zero
+    atomic_init(&(region->global_version_clock), 0u); //0u = unsigned int
+
+    //we create the array for versioned-locks
+    //The difference in malloc and calloc is that malloc does not set the memory to zero where as calloc sets allocated memory to zero.
+    //in our region we gonna have size/align number of "case", each one need a lock.
+    atomic_uint* versioned_locks = (atomic_uint*) calloc(size / align, sizeof(atomic_uint));
+    if (unlikely(!versioned_locks)) {
+        free(region->start);
+        free(region);
+        return invalid_shared;
+    }
+    //assign versioned locks to region
+    region->versioned_locks = versioned_locks;
+    return region;
 }
 
 /** Destroy (i.e. clean-up + free) a given shared memory region.
  * @param shared Shared memory region to destroy, with no running transaction
 **/
 void tm_destroy(shared_t shared as(unused)) {
+    //cast:
+    struct region* region_to_destroy = (struct region*) shared;
+    free(region_to_destroy->start);
+    free(region_to_destroy->versioned_locks);
+    free(shared);
+
+
     // TODO: tm_destroy(shared_t)
 }
 
