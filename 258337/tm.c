@@ -67,6 +67,10 @@
 #endif
 
 // -------------------------------------------------------------------------- //
+//my function:
+void free_transaction(tx_t tx, shared_t shared);
+bool validate_transaction(shared_t shared as(unused), tx_t tx as(unused));
+
 
 //only one region for our program, its the main contenant.
 struct region {
@@ -152,9 +156,6 @@ void tm_destroy(shared_t shared as(unused)) {
     free(region_to_destroy->start);
     free(region_to_destroy->versioned_locks);
     free(shared);
-
-
-    // TODO: tm_destroy(shared_t)
 }
 
 /** [thread-safe] Return the start address of the first allocated segment in the shared memory region.
@@ -162,8 +163,9 @@ void tm_destroy(shared_t shared as(unused)) {
  * @return Start address of the first allocated segment
 **/
 void* tm_start(shared_t shared as(unused)) {
-    // TODO: tm_start(shared_t)
-    return NULL;
+    //cast:
+    struct region* region = (struct region*) shared;
+    return region->start;
 }
 
 /** [thread-safe] Return the size (in bytes) of the first allocated segment of the shared memory region.
@@ -171,8 +173,10 @@ void* tm_start(shared_t shared as(unused)) {
  * @return First allocated segment size
 **/
 size_t tm_size(shared_t shared as(unused)) {
-    // TODO: tm_size(shared_t)
-    return 0;
+    //cast:
+    struct region* region = (struct region*) shared;
+    size_t size = atomic_load(region->size);        //ptr??
+    return size;
 }
 
 /** [thread-safe] Return the alignment (in bytes) of the memory accesses on the given shared memory region.
@@ -180,8 +184,10 @@ size_t tm_size(shared_t shared as(unused)) {
  * @return Alignment used globally
 **/
 size_t tm_align(shared_t shared as(unused)) {
-    // TODO: tm_align(shared_t)
-    return 0;
+    //cast:
+    struct region* region = (struct region*) shared;
+    size_t align = atomic_load(region->align);
+    return align;
 }
 
 /** [thread-safe] Begin a new transaction on the given shared memory region.
@@ -189,9 +195,38 @@ size_t tm_align(shared_t shared as(unused)) {
  * @param is_ro  Whether the transaction is read-only
  * @return Opaque transaction ID, 'invalid_tx' on failure
 **/
+//create an empty new transaction:
 tx_t tm_begin(shared_t shared as(unused), bool is_ro as(unused)) {
-    // TODO: tm_begin(shared_t)
-    return invalid_tx;
+    struct region* region = (struct region*) shared;
+    //get global clock:
+    unsigned int global_clock = atomic_load(region->global_version_clock);
+    //init a transaction:
+    struct transaction* transaction = (struct transaction*) malloc(sizeof(struct transaction));
+    if (unlikely(!transaction)) {
+        return invalid_tx;
+    }
+    transaction->is_read_only = is_ro;
+    transaction->rv = global_clock;
+    size_t alignment = tm_align(shared); //size_t is unsigned integer version of sizeof()
+    size_t size_transaction = tm_size(shared);
+    size_t number_of_case = size_transaction / alignment;
+
+    //if is not read only : alloc new space for shared_memory_state with value null
+    if(!is_ro) {
+        //create a local memory_state
+        struct shared_memory_state *memory_state = (struct shared_memory_state *) calloc(number_of_case,
+                                                                                         sizeof(struct shared_memory_state));
+        if (unlikely(!memory_state)) {
+            free(transaction);
+            return invalid_tx;
+        }
+        for (size_t i = 0; i < number_of_case; i++) {
+            memory_state[i].new_value = NULL;
+            memory_state[i].read = false;
+        }
+        transaction->memory_state = memory_state;
+    }
+    return (tx_t)transaction;
 }
 
 /** [thread-safe] End the given transaction.
@@ -200,7 +235,41 @@ tx_t tm_begin(shared_t shared as(unused), bool is_ro as(unused)) {
  * @return Whether the whole transaction committed
 **/
 bool tm_end(shared_t shared as(unused), tx_t tx as(unused)) {
-    // TODO: tm_end(shared_t, tx_t)
+    struct transaction* transaction = (struct transaction*) tx;
+    if (transaction->is_read_only) {
+        free_transaction(tx, shared);
+        return true;
+    }
+    bool is_validated = validate_transaction(shared, tx);
+    if (!is_validated) {
+        free_transaction(tx, shared);
+        return false;
+    }
+    // Propage writes to shared memory and release write locks
+   // propagate_writes(shared, tx);
+    free_transaction(tx, shared);
+    return is_validated;
+}
+//tx : transaction
+//shared : region
+void free_transaction(tx_t tx, shared_t shared) {
+    struct transaction* transaction = (struct transaction*) tx;
+    if(!transaction->is_read_only){
+        //free each shared_memory_state:
+        for (size_t i = 0; i < tm_size(shared)/tm_align(shared); i++) {
+           struct shared_memory_state* memory_state = &(transaction->memory_state[i]);
+            if (memory_state->new_value != NULL) {
+                free(memory_state->new_value);
+            }
+        }
+        //free the first ??
+        free(transaction->memory_state);
+    }
+    //free the transaction
+    free(transaction);
+}
+
+bool validate_transaction(shared_t shared as(unused), tx_t tx as(unused)) {
     return false;
 }
 
