@@ -297,8 +297,8 @@ public:
             if (long_dist(engine)) { // Do a long transaction
                 if (unlikely(!long_tx(count)))
                     return "Violated isolation or atomicity";
-            } else if (alloc_dist(engine)) { // Do an allocation transaction
-                alloc_tx(alloc_trigger(engine));
+            //} else if (alloc_dist(engine)) { // Do an allocation transaction
+                //alloc_tx(alloc_trigger(engine));
             } else { // Do a short transaction
                 ::std::uniform_int_distribution<size_t> account{0, count - 1};
                 while (unlikely(!short_tx(account(engine), account(engine))));
